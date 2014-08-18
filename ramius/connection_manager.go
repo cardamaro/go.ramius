@@ -35,7 +35,7 @@ func NewServerSet(servers []ServerConfig, quarantinePeriod time.Duration) *Serve
 func (s *ServerSet) Quarantine(server ServerConfig) {
 	s.Lock()
 	defer s.Unlock()
-	glog.V(3).Infof("Adding %v to quarantine", server)
+	glog.V(3).Infof("Quarantining %v for %v", server, s.quarantinePeriod)
 	s.quarantined[server] = time.Now()
 }
 
@@ -118,37 +118,29 @@ func (m *ConnectionManager) removeConn(conn *Connection) {
 }
 
 func (m *ConnectionManager) Get(timeout time.Duration) *Connection {
-	out := make(chan *Connection)
-
-	go func() {
-		for {
-			select {
-			case conn := <-m.conns:
-				if err := conn.Activate(); err != nil {
-					m.Lock()
-					m.removeConn(conn)
-					m.Unlock()
-					continue
-				}
-
+	for {
+		select {
+		case conn := <-m.conns:
+			if err := conn.Activate(); err != nil {
 				m.Lock()
-				m.Active += 1
+				m.removeConn(conn)
 				m.Unlock()
-
-				glog.V(3).Infof("Get %v active: %d", conn.ServerConfig, m.Active)
-
-				out <- conn
-				return
-			case <-time.After(timeout):
-				out <- nil
-				glog.Infof("Timed out waiting to get a connection (%s)", timeout)
-				m.tryToFillPool()
-				return
+				continue
 			}
-		}
-	}()
 
-	return <-out
+			m.Lock()
+			m.Active += 1
+			m.Unlock()
+
+			glog.V(3).Infof("Get %v active: %d", conn.ServerConfig, m.Active)
+
+			return conn
+		case <-time.After(timeout):
+			glog.Infof("Timed out waiting to get a connection (%s)", timeout)
+			m.tryToFillPool()
+			return nil
+		}
+	}
 }
 
 func (m *ConnectionManager) Put(conn *Connection) {

@@ -61,17 +61,13 @@ func (c *Connection) Activate() error {
 func (c *Connection) Call(serviceMethod string, args interface{}, reply interface{}) error {
 	glog.V(3).Infof("Call(%s)", serviceMethod)
 	err := c.client.Call(serviceMethod, args, reply)
-	glog.V(3).Infof("Call(%s) error: %v", serviceMethod, err)
-	if err != nil {
-		panic(err)
-	}
 	if err == nil {
 		c.Reset()
 		return nil
 	} else if err == io.ErrUnexpectedEOF ||
 		err == rpc.ErrShutdown ||
 		reflect.TypeOf(err) == reflect.TypeOf((*rpc.ServerError)(nil)).Elem() {
-		glog.V(3).Infof("Error during call: %v (%v)", err, reflect.TypeOf(err))
+		glog.V(3).Infof("Error during Call(%s): %v (%v)", serviceMethod, err, reflect.TypeOf(err))
 		c.MarkFailed()
 		return &RetryableError{err}
 	} else {
@@ -106,7 +102,6 @@ var ClientFailedToConnect = &RetryableError{errors.New("failed to get connection
 type Client struct {
 	Pool                  *ConnectionManager
 	WaitToGet             time.Duration
-	Retries               int
 	BackoffMaxInterval    time.Duration
 	BackoffMaxElapsedTime time.Duration
 }
@@ -119,6 +114,7 @@ func (c *Client) Call(serviceMethod string, args interface{}, reply interface{})
 	if c.BackoffMaxElapsedTime > 0 {
 		b.MaxElapsedTime = c.BackoffMaxElapsedTime
 	}
+	glog.V(3).Infof("Backoff config: %+v", b)
 
 	ticker := backoff.NewTicker(b)
 
@@ -130,16 +126,11 @@ func (c *Client) Call(serviceMethod string, args interface{}, reply interface{})
 	attempts := 0
 
 	for _ = range ticker.C {
-		glog.V(3).Infof("retries: %d attempts: %d", c.Retries, attempts)
-		if c.Retries > 0 && attempts > c.Retries {
-			return err
-		}
-
 		attempts += 1
 		conn = c.Pool.Get(c.WaitToGet)
 
 		if conn == nil {
-			glog.Infof("Failed to get a connection")
+			glog.V(3).Infof("Failed to get a connection")
 			err = ClientFailedToConnect
 			continue
 		}
@@ -152,7 +143,7 @@ func (c *Client) Call(serviceMethod string, args interface{}, reply interface{})
 		case nil:
 			return nil
 		case err.(*RetryableError):
-			glog.Infof("retry! %v", err)
+			glog.V(3).Infof("retry! %v", err)
 			continue
 		default:
 			return err
