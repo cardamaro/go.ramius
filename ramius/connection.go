@@ -3,7 +3,7 @@ package ramius
 import (
 	"errors"
 	"fmt"
-	"github.com/cardamaro/stats"
+	"github.com/cardamaro/telemetry"
 	"github.com/cenkalti/backoff"
 	"github.com/golang/glog"
 	"io"
@@ -14,15 +14,15 @@ import (
 )
 
 var (
-	callTimings               = stats.NewTimings("RamiusRpcConnCallLatency")
-	countConnRetryableErrors  = stats.NewCounters("RamiusRpcConnCallRetryableErr")
-	countConnErrors           = stats.NewCounters("RamiusRpcConnCallErr")
-	countActivations          = stats.NewInt("RamiusRpcConnActivate")
-	countActivationsDial      = stats.NewInt("RamiusRpcConnActivateDial")
-	countActivationsByAddr    = stats.NewCounters("RamiusRpcConnActivationsByAddr")
-	countActivationsByAddrErr = stats.NewCounters("RamiusRpcConnActivationsByAddrErr")
-	countFailedToGetConn      = stats.NewInt("RamiusRpcFailedToGetConn")
-	countConnErrorsByType     = stats.NewCounters("RamiusRpcConnErrByType")
+	callTimings               = telemetry.NewTimings("RamiusRpcConnCallLatency")
+	countConnRetryableErrors  = telemetry.NewCounters("RamiusRpcConnCallRetryableErr")
+	countConnErrors           = telemetry.NewCounters("RamiusRpcConnCallErr")
+	countActivations          = telemetry.NewInt("RamiusRpcConnActivate")
+	countActivationsDial      = telemetry.NewInt("RamiusRpcConnActivateDial")
+	countActivationsByAddr    = telemetry.NewCounters("RamiusRpcConnActivationsByAddr")
+	countActivationsByAddrErr = telemetry.NewCounters("RamiusRpcConnActivationsByAddrErr")
+	countFailedToGetConn      = telemetry.NewInt("RamiusRpcFailedToGetConn")
+	countConnErrorsByType     = telemetry.NewCounters("RamiusRpcConnErrByType")
 )
 
 type RetryableError struct {
