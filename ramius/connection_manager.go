@@ -25,11 +25,12 @@ type ServerSet struct {
 }
 
 func NewServerSet(servers []ServerConfig, quarantinePeriod time.Duration) *ServerSet {
-	return &ServerSet{
+	s := &ServerSet{
 		servers:          servers,
 		quarantinePeriod: quarantinePeriod,
 		quarantined:      make(map[ServerConfig]time.Time),
 	}
+	return s
 }
 
 func (s *ServerSet) Quarantine(server ServerConfig) {
@@ -37,6 +38,16 @@ func (s *ServerSet) Quarantine(server ServerConfig) {
 	defer s.Unlock()
 	glog.V(3).Infof("Quarantining %v for %v", server, s.quarantinePeriod)
 	s.quarantined[server] = time.Now()
+}
+
+func (s *ServerSet) QuarantineMap() map[string]time.Duration {
+	s.Lock()
+	defer s.Unlock()
+	out := make(map[string]time.Duration)
+	for k, v := range s.quarantined {
+		out[k.Addr.String()] = s.quarantinePeriod - time.Since(v)
+	}
+	return out
 }
 
 func (s *ServerSet) All() []ServerConfig {
@@ -64,7 +75,7 @@ func (s *ServerSet) All() []ServerConfig {
 
 type ConnectionManager struct {
 	sync.Mutex
-	Active  int
+	active  int
 	size    int
 	servers *ServerSet
 	pooled  map[ServerConfig]bool
@@ -85,9 +96,9 @@ func (m *ConnectionManager) Init() {
 }
 
 func (m *ConnectionManager) tryToFillPool() {
-	c := len(m.conns) + m.Active
+	c := len(m.conns) + m.active
 	need := m.size - c
-	glog.V(3).Infof("size: %d total conns: %d (%d + %d) need: %d", m.size, c, len(m.conns), m.Active, need)
+	glog.V(4).Infof("size: %d total conns: %d (%d + %d) need: %d", m.size, c, len(m.conns), m.active, need)
 
 	if need == 0 {
 		return
@@ -105,7 +116,7 @@ func (m *ConnectionManager) tryToFillPool() {
 		m.pooled[server] = true
 		need -= 1
 	}
-	glog.V(3).Infof("got: %d", (m.size-c)-need)
+	glog.V(4).Infof("got: %d", (m.size-c)-need)
 }
 
 func (m *ConnectionManager) removeConn(conn *Connection) {
@@ -115,6 +126,26 @@ func (m *ConnectionManager) removeConn(conn *Connection) {
 	if !conn.IsHealthy() {
 		m.servers.Quarantine(conn.ServerConfig)
 	}
+}
+
+func (m *ConnectionManager) Stats() map[string]int {
+	m.Lock()
+	defer m.Unlock()
+	return map[string]int{
+		"active": m.active,
+		"pooled": len(m.pooled),
+		"size":   m.size,
+	}
+}
+
+func (m *ConnectionManager) Pooled() []string {
+	m.Lock()
+	defer m.Unlock()
+	out := make([]string, 0, len(m.pooled))
+	for k, _ := range m.pooled {
+		out = append(out, k.Addr.String())
+	}
+	return out
 }
 
 func (m *ConnectionManager) Get(timeout time.Duration) *Connection {
@@ -129,10 +160,10 @@ func (m *ConnectionManager) Get(timeout time.Duration) *Connection {
 			}
 
 			m.Lock()
-			m.Active += 1
+			m.active += 1
 			m.Unlock()
 
-			glog.V(3).Infof("Get %v active: %d", conn.ServerConfig, m.Active)
+			glog.V(4).Infof("Get %v active: %d", conn.ServerConfig, m.active)
 
 			return conn
 		case <-time.After(timeout):
@@ -151,8 +182,8 @@ func (m *ConnectionManager) Put(conn *Connection) {
 	m.Lock()
 	defer m.Unlock()
 
-	m.Active -= 1
-	glog.V(3).Infof("Put %v active: %d", conn.ServerConfig, m.Active)
+	m.active -= 1
+	glog.V(4).Infof("Put %v active: %d", conn.ServerConfig, m.active)
 
 	if conn.IsHealthy() {
 		m.conns <- conn
